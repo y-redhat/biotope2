@@ -2,48 +2,22 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>NovaNotions Biotope – Ideological Civilization</title>
+<title>NovaNotions Biotope – Nation Formation</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
-body{
-  margin:0;
-  background:#000;
-  overflow:hidden;
-  font-family:monospace;
-}
+body{margin:0;background:#000;overflow:hidden;font-family:monospace}
 #ui{
-  position:absolute;
-  bottom:10px;
-  left:50%;
+  position:absolute;bottom:10px;left:50%;
   transform:translateX(-50%);
-  width:90%;
-  text-align:center;
-  z-index:10;
+  width:90%;text-align:center;color:#0f0
 }
-input{
-  width:60%;
-  padding:10px;
-  background:rgba(0,0,0,.8);
-  border:1px solid #0f0;
-  color:#0f0;
-}
-#stats{
-  color:#aaa;
-  font-size:12px;
-  margin-bottom:4px;
-}
+#stats{font-size:12px;margin-bottom:4px;color:#aaa}
 #log{
-  position:absolute;
-  top:10px;
-  left:10px;
-  width:320px;
-  height:220px;
-  overflow:auto;
-  font-size:11px;
-  color:#0f0;
+  position:absolute;top:10px;left:10px;
+  width:320px;height:200px;overflow:auto;
+  font-size:11px;color:#0f0;
   background:rgba(0,0,0,.65);
-  border:1px solid #022;
-  padding:6px;
+  border:1px solid #022;padding:6px
 }
 .warning{color:#f00}
 </style>
@@ -57,79 +31,54 @@ input{
     YEAR:<span id="year">0</span> |
     RED:<span id="rpop">0</span> |
     BLUE:<span id="bpop">0</span> |
-    STATE:<span id="state">STABLE</span>
+    RED STATE:<span id="rstate">TRIBE</span> |
+    BLUE STATE:<span id="bstate">TRIBE</span>
   </div>
-  <input id="cmd" placeholder="> genesis / accelerate / purge / monopoly / reset">
 </div>
 
 <script>
-/* =====================
-   世界設定
-===================== */
+/* ========= 世界 ========= */
 let agents=[];
-let foods=[];
 let territory=[];
+let food=[];
 let year=0, frame=0;
-let war=false;
 
 const GRID=22;
-let cols,rows;
+let cols, rows;
 
-const IDEOLOGY={
-  RED:"collective",
-  BLUE:"market"
-};
+let redNation=false;
+let blueNation=false;
 
-/* =====================
-   AI指導者（簡易学習）
-===================== */
-class Leader{
-  constructor(name){
-    this.name=name;
-    this.bias={expand:1, save:1, grow:1};
-    this.lastScore=0;
-  }
-  adapt(score){
-    let diff=score-this.lastScore;
-    let k=random(["expand","save","grow"]);
-    this.bias[k]+=diff*0.005;
-    this.bias[k]=constrain(this.bias[k],0.5,2.5);
-    this.lastScore=score;
-  }
-}
+/* ========= リーダー ========= */
+const leaderRed={pos:null};
+const leaderBlue={pos:null};
 
-const leaderRed=new Leader("RED_CORE");
-const leaderBlue=new Leader("BLUE_CORE");
-
-/* =====================
-   初期化
-===================== */
+/* ========= 初期化 ========= */
 function setup(){
   createCanvas(windowWidth,windowHeight);
   cols=floor(width/GRID);
   rows=floor(height/GRID);
-  territory=new Array(cols*rows).fill(null);
-  spawnFood(250);
-  runCommand("genesis");
 
-  const input=document.getElementById("cmd");
-  input.focus();
-  input.addEventListener("keydown",e=>{
-    if(e.key==="Enter"){
-      runCommand(input.value);
-      input.value="";
-    }
-  });
+  territory=new Array(cols*rows).fill(null);
+  food=new Array(cols*rows).fill(0);
+
+  // リーダー配置
+  leaderRed.pos=createVector(width*0.25,height/2);
+  leaderBlue.pos=createVector(width*0.75,height/2);
+
+  // 初期エージェント
+  for(let i=0;i<30;i++){
+    agents.push(new Agent("red"));
+    agents.push(new Agent("blue"));
+  }
+
+  spawnFood(300);
 }
 
-/* =====================
-   メインループ
-===================== */
+/* ========= ループ ========= */
 function draw(){
-  frame++;
-  if(frame%60===0) year++;
-
-  background(0,20,10);
+  background(0,15,5);
+  frame++; if(frame%60===0) year++;
 
   drawTerritory();
   updateFood();
@@ -141,57 +90,46 @@ function draw(){
     a.update();
     a.show();
     if(a.dead()) agents.splice(i,1);
-    else a.team===IDEOLOGY.RED?r++:b++;
+    else a.team==="red"?r++:b++;
   }
 
-  leaderRed.adapt(r);
-  leaderBlue.adapt(b);
+  // 国家形成判定
+  let rLand=countLand("red");
+  let bLand=countLand("blue");
 
-  // 自然増殖
-  if(random()<0.015*leaderRed.bias.grow) agents.push(new Agent(IDEOLOGY.RED));
-  if(random()<0.015*leaderBlue.bias.grow) agents.push(new Agent(IDEOLOGY.BLUE));
-
-  // 戦争
-  if(agents.length>100 && !war){
-    war=true;
-    state.innerText="WAR MODE";
-    state.className="warning";
-    log("!! TOTAL WAR TRIGGERED");
-  }
-
-  // イベント
-  if(war && frame%300===0){
-    if(r>b) purge();
-    if(b>r) monopoly();
-  }
-
-  if(r<=10||b<=10){
-    noLoop();
-    state.innerText=r>b?"RED STABILIZATION":"BLUE DOMINANCE";
-  }
+  if(rLand>300) redNation=true;
+  if(bLand>300) blueNation=true;
 
   yearEl.innerText=year;
   rpop.innerText=r;
   bpop.innerText=b;
+  rstate.innerText=redNation?"NATION":"TRIBE";
+  bstate.innerText=blueNation?"NATION":"TRIBE";
 }
 
-/* =====================
-   エージェント
-===================== */
+/* ========= エージェント ========= */
 class Agent{
   constructor(team){
     this.team=team;
-    this.pos=createVector(random(width),random(height));
+    this.pos=p5.Vector.random2D().mult(50)
+      .add(team==="red"?leaderRed.pos:leaderBlue.pos);
     this.vel=p5.Vector.random2D();
     this.energy=50;
-    this.speed=team===IDEOLOGY.BLUE?1.8:1.2;
+    this.speed=team==="blue"?1.6:1.2;
   }
 
   update(){
-    let ang=random(TWO_PI);
-    this.vel.add(p5.Vector.fromAngle(ang).mult(0.2));
+    // リーダーへの志向（国家で強化）
+    let leader=this.team==="red"?leaderRed.pos:leaderBlue.pos;
+    let pull=p5.Vector.sub(leader,this.pos)
+      .setMag((this.team==="red"?0.15:0.12)*(this.isNation()?1.5:1));
+    this.vel.add(pull);
+
+    // ランダム性＝生物の自由
+    this.vel.add(p5.Vector.random2D().mult(0.4));
     this.vel.limit(this.speed);
     this.pos.add(this.vel);
+
     this.wrap();
 
     let gx=floor(this.pos.x/GRID);
@@ -199,13 +137,15 @@ class Agent{
     let idx=gx+gy*cols;
     territory[idx]=this.team;
 
-    // 餌
-    if(foods[idx]>0){
-      this.energy+=this.team===territory[idx]?1.4:0.6;
-      foods[idx]-=1;
+    if(food[idx]>0){
+      this.energy+=this.isNation()?1.6:1;
+      food[idx]-=1;
     }
+    this.energy-=0.12;
+  }
 
-    this.energy-=war?0.25:0.1;
+  isNation(){
+    return this.team==="red"?redNation:blueNation;
   }
 
   dead(){return this.energy<=0;}
@@ -219,90 +159,47 @@ class Agent{
 
   show(){
     noStroke();
-    fill(this.team===IDEOLOGY.RED?color(255,50,50):color(80,80,255));
+    fill(this.team==="red"?color(255,70,70):color(80,80,255));
     rect(this.pos.x-2,this.pos.y-2,4,4);
   }
 }
 
-/* =====================
-   領土・餌
-===================== */
+/* ========= 描画 ========= */
 function drawTerritory(){
   for(let i=0;i<territory.length;i++){
     if(!territory[i]) continue;
     let x=(i%cols)*GRID;
     let y=floor(i/cols)*GRID;
-    fill(territory[i]===IDEOLOGY.RED?
-      "rgba(255,0,0,0.15)":
-      "rgba(0,0,255,0.15)");
+    fill(territory[i]==="red"
+      ?"rgba(255,0,0,0.15)"
+      :"rgba(0,0,255,0.15)");
     rect(x,y,GRID,GRID);
   }
+
+  // リーダー描画（大きい）
+  noStroke();
+  fill(255,0,0);
+  circle(leaderRed.pos.x,leaderRed.pos.y,18);
+  fill(0,0,255);
+  circle(leaderBlue.pos.x,leaderBlue.pos.y,18);
 }
 
+/* ========= 餌 ========= */
 function updateFood(){
-  let rT=territory.filter(t=>t===IDEOLOGY.RED).length;
-  let bT=territory.filter(t=>t===IDEOLOGY.BLUE).length;
-
-  for(let i=0;i<foods.length;i++){
-    if(territory[i]===IDEOLOGY.RED) foods[i]+=rT*0.00004;
-    if(territory[i]===IDEOLOGY.BLUE) foods[i]+=bT*0.00004;
-    foods[i]=min(foods[i],10);
+  for(let i=0;i<food.length;i++){
+    if(territory[i]) food[i]+=0.01;
+    food[i]=min(food[i],8);
   }
 }
-
-/* =====================
-   イベント
-===================== */
-function purge(){
-  let reds=agents.filter(a=>a.team===IDEOLOGY.RED);
-  reds.sort((a,b)=>a.energy-b.energy);
-  let cut=floor(reds.length*0.15);
-  agents=agents.filter(a=>!reds.slice(0,cut).includes(a));
-  log("☠ PURGE EXECUTED");
-}
-
-function monopoly(){
-  agents.filter(a=>a.team===IDEOLOGY.BLUE&&a.energy>70)
-    .forEach(a=>{a.speed+=0.3;a.energy+=5});
-  log("🏦 MONOPOLY ESTABLISHED");
-}
-
-/* =====================
-   コマンド
-===================== */
-function runCommand(cmd){
-  cmd=cmd.trim();
-  if(cmd==="genesis"){
-    for(let i=0;i<20;i++){
-      agents.push(new Agent(IDEOLOGY.RED));
-      agents.push(new Agent(IDEOLOGY.BLUE));
-    }
-    log("GENESIS INITIALIZED");
-  }
-  if(cmd==="accelerate"){
-    agents.forEach(a=>a.speed+=0.2);
-    log("EVOLUTION ACCELERATION");
-  }
-  if(cmd==="reset"){
-    agents=[];foods=[];territory.fill(null);
-    war=false;year=0;
-    spawnFood(250);
-    state.innerText="STABLE";
-    log("SYSTEM RESET");
-  }
-}
-
-/* =====================
-   補助
-===================== */
 function spawnFood(n){
-  foods=new Array(cols*rows).fill(0);
   for(let i=0;i<n;i++){
-    foods[floor(random(foods.length))]+=1;
+    food[floor(random(food.length))]+=1;
   }
 }
-function log(t){
-  logDiv.innerHTML=t+"<br>"+logDiv.innerHTML;
+
+/* ========= 補助 ========= */
+function countLand(team){
+  return territory.filter(t=>t===team).length;
 }
 function windowResized(){
   resizeCanvas(windowWidth,windowHeight);
