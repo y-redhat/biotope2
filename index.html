@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Ideology Biotope Simulation</title>
+<style>
+body {
+  background:#111;
+  color:#eee;
+  font-family:monospace;
+  text-align:center;
+}
+canvas {
+  border:1px solid #555;
+  background:#000;
+}
+</style>
+</head>
+<body>
+<h2>共産主義 vs 資本主義 ビオトープ</h2>
+<canvas id="world" width="800" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById("world");
+const ctx = canvas.getContext("2d");
+
+const agents = [];
+const resources = [];
+
+const LEFT = 0;
+const RIGHT = canvas.width / 2;
+
+class Agent {
+  constructor(x, y, type) {
+    this.x = x;
+    this.y = y;
+    this.type = type; // "collective" or "market"
+    this.energy = 50;
+    this.speed = type === "market" ? 1.5 : 1;
+  }
+
+  move() {
+    this.x += (Math.random() - 0.5) * this.speed * 4;
+    this.y += (Math.random() - 0.5) * this.speed * 4;
+  }
+
+  eat() {
+    for (let i = resources.length - 1; i >= 0; i--) {
+      const r = resources[i];
+      const d = Math.hypot(this.x - r.x, this.y - r.y);
+      if (d < 6) {
+        this.energy += r.value;
+        resources.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  update() {
+    this.move();
+    this.eat();
+    this.energy -= 0.1;
+  }
+
+  draw() {
+    ctx.fillStyle = this.type === "collective" ? "#ff5555" : "#5599ff";
+    ctx.fillRect(this.x - 2, this.y - 2, 4, 4);
+  }
+}
+
+// 初期個体
+for (let i = 0; i < 25; i++) {
+  agents.push(new Agent(
+    Math.random() * RIGHT,
+    Math.random() * canvas.height,
+    "collective"
+  ));
+  agents.push(new Agent(
+    RIGHT + Math.random() * RIGHT,
+    Math.random() * canvas.height,
+    "market"
+  ));
+}
+
+// 資源生成
+function spawnResource() {
+  resources.push({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    value: 10
+  });
+}
+
+function drawResource(r) {
+  ctx.fillStyle = "#33ff66";
+  ctx.fillRect(r.x - 2, r.y - 2, 4, 4);
+}
+
+function loop() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // 境界線
+  ctx.strokeStyle = "#666";
+  ctx.beginPath();
+  ctx.moveTo(RIGHT, 0);
+  ctx.lineTo(RIGHT, canvas.height);
+  ctx.stroke();
+
+  if (Math.random() < 0.05) spawnResource();
+
+  resources.forEach(drawResource);
+
+  for (let i = agents.length - 1; i >= 0; i--) {
+    const a = agents[i];
+    a.update();
+    a.draw();
+    if (a.energy <= 0) agents.splice(i, 1);
+  }
+
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
+
