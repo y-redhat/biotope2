@@ -2,89 +2,66 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>NovaNotions Biotope – Nation Formation</title>
+<title>NovaNotions Biotope – Nation Simulation</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
 body{margin:0;background:#000;overflow:hidden;font-family:monospace}
 #ui{
-  position:absolute;bottom:10px;left:50%;
+  position:absolute;bottom:8px;left:50%;
   transform:translateX(-50%);
-  width:90%;text-align:center;color:#0f0
+  color:#0f0;font-size:12px
 }
-#stats{font-size:12px;margin-bottom:4px;color:#aaa}
-#log{
-  position:absolute;top:10px;left:10px;
-  width:320px;height:200px;overflow:auto;
-  font-size:11px;color:#0f0;
-  background:rgba(0,0,0,.65);
-  border:1px solid #022;padding:6px
-}
-.warning{color:#f00}
 </style>
 </head>
-
 <body>
-<div id="log"></div>
 
 <div id="ui">
-  <div id="stats">
-    YEAR:<span id="year">0</span> |
-    RED:<span id="rpop">0</span> |
-    BLUE:<span id="bpop">0</span> |
-    RED STATE:<span id="rstate">TRIBE</span> |
-    BLUE STATE:<span id="bstate">TRIBE</span>
-  </div>
+YEAR:<span id="year">0</span> |
+RED:<span id="rpop">0</span> |
+BLUE:<span id="bpop">0</span>
 </div>
 
 <script>
-/* ========= 世界 ========= */
-let agents=[];
-let territory=[];
-let food=[];
-let year=0, frame=0;
-
-const GRID=22;
+/* ===== 基本 ===== */
+let agents=[], territory=[], food=[];
+let frame=0, year=0;
+const GRID=24;
 let cols, rows;
+const BORDER_X=()=>width/2;
 
-let redNation=false;
-let blueNation=false;
-
-/* ========= リーダー ========= */
+/* ===== 国家 ===== */
+let redNation=false, blueNation=false;
 const leaderRed={pos:null};
 const leaderBlue={pos:null};
 
-/* ========= 初期化 ========= */
+/* ===== 初期化 ===== */
 function setup(){
   createCanvas(windowWidth,windowHeight);
   cols=floor(width/GRID);
   rows=floor(height/GRID);
-
   territory=new Array(cols*rows).fill(null);
   food=new Array(cols*rows).fill(0);
 
-  // リーダー配置
   leaderRed.pos=createVector(width*0.25,height/2);
   leaderBlue.pos=createVector(width*0.75,height/2);
 
-  // 初期エージェント
-  for(let i=0;i<30;i++){
+  for(let i=0;i<40;i++){
     agents.push(new Agent("red"));
     agents.push(new Agent("blue"));
   }
-
-  spawnFood(300);
+  spawnFood(400);
 }
 
-/* ========= ループ ========= */
+/* ===== メイン ===== */
 function draw(){
-  background(0,15,5);
   frame++; if(frame%60===0) year++;
+  background(0,20,8);
 
   drawTerritory();
-  updateFood();
+  drawBorder();
+  drawLeaders();
 
   let r=0,b=0;
-
   for(let i=agents.length-1;i>=0;i--){
     let a=agents[i];
     a.update();
@@ -93,43 +70,45 @@ function draw(){
     else a.team==="red"?r++:b++;
   }
 
-  // 国家形成判定
-  let rLand=countLand("red");
-  let bLand=countLand("blue");
-
-  if(rLand>300) redNation=true;
-  if(bLand>300) blueNation=true;
+  if(countLand("red")>350) redNation=true;
+  if(countLand("blue")>350) blueNation=true;
 
   yearEl.innerText=year;
   rpop.innerText=r;
   bpop.innerText=b;
-  rstate.innerText=redNation?"NATION":"TRIBE";
-  bstate.innerText=blueNation?"NATION":"TRIBE";
 }
 
-/* ========= エージェント ========= */
+/* ===== エージェント ===== */
 class Agent{
   constructor(team){
     this.team=team;
-    this.pos=p5.Vector.random2D().mult(50)
-      .add(team==="red"?leaderRed.pos:leaderBlue.pos);
-    this.vel=p5.Vector.random2D();
+    this.pos=createVector(
+      team==="red"?random(width/2):random(width/2,width),
+      random(height)
+    );
+    this.vel=p5.Vector.random2D().mult(1);
     this.energy=50;
-    this.speed=team==="blue"?1.6:1.2;
+    this.speed=team==="blue"?2.2:1.8;
+    this.phase=random(TWO_PI);
   }
 
   update(){
-    // リーダーへの志向（国家で強化）
-    let leader=this.team==="red"?leaderRed.pos:leaderBlue.pos;
-    let pull=p5.Vector.sub(leader,this.pos)
-      .setMag((this.team==="red"?0.15:0.12)*(this.isNation()?1.5:1));
-    this.vel.add(pull);
+    this.phase+=0.1;
 
-    // ランダム性＝生物の自由
-    this.vel.add(p5.Vector.random2D().mult(0.4));
+    // リーダー志向
+    let leader=this.team==="red"?leaderRed.pos:leaderBlue.pos;
+    let dir=p5.Vector.sub(leader,this.pos).setMag(0.08);
+    this.vel.add(dir);
+
+    // 自由意志（はっきり動く）
+    this.vel.add(p5.Vector.random2D().mult(0.6));
+
+    // 国境ペナルティ
+    if(this.team==="red" && this.pos.x>BORDER_X()) this.vel.x-=1;
+    if(this.team==="blue" && this.pos.x<BORDER_X()) this.vel.x+=1;
+
     this.vel.limit(this.speed);
     this.pos.add(this.vel);
-
     this.wrap();
 
     let gx=floor(this.pos.x/GRID);
@@ -138,10 +117,10 @@ class Agent{
     territory[idx]=this.team;
 
     if(food[idx]>0){
-      this.energy+=this.isNation()?1.6:1;
+      this.energy+=this.isNation()?1.8:1.2;
       food[idx]-=1;
     }
-    this.energy-=0.12;
+    this.energy-=0.15;
   }
 
   isNation(){
@@ -151,53 +130,64 @@ class Agent{
   dead(){return this.energy<=0;}
 
   wrap(){
-    if(this.pos.x<0) this.pos.x=width;
-    if(this.pos.x>width) this.pos.x=0;
     if(this.pos.y<0) this.pos.y=height;
     if(this.pos.y>height) this.pos.y=0;
+    this.pos.x=constrain(this.pos.x,0,width);
   }
 
   show(){
+    let pulse=sin(this.phase)*2;
     noStroke();
-    fill(this.team==="red"?color(255,70,70):color(80,80,255));
-    rect(this.pos.x-2,this.pos.y-2,4,4);
+    fill(this.team==="red"?color(255,80,80):color(80,120,255));
+    rect(this.pos.x-2,this.pos.y-2-pulse,4,4+pulse);
   }
 }
 
-/* ========= 描画 ========= */
+/* ===== 描画 ===== */
 function drawTerritory(){
   for(let i=0;i<territory.length;i++){
     if(!territory[i]) continue;
     let x=(i%cols)*GRID;
     let y=floor(i/cols)*GRID;
     fill(territory[i]==="red"
-      ?"rgba(255,0,0,0.15)"
-      :"rgba(0,0,255,0.15)");
+      ?"rgba(255,0,0,0.12)"
+      :"rgba(0,0,255,0.12)");
     rect(x,y,GRID,GRID);
   }
-
-  // リーダー描画（大きい）
-  noStroke();
-  fill(255,0,0);
-  circle(leaderRed.pos.x,leaderRed.pos.y,18);
-  fill(0,0,255);
-  circle(leaderBlue.pos.x,leaderBlue.pos.y,18);
 }
 
-/* ========= 餌 ========= */
-function updateFood(){
-  for(let i=0;i<food.length;i++){
-    if(territory[i]) food[i]+=0.01;
-    food[i]=min(food[i],8);
+function drawBorder(){
+  stroke(0,255,0,120);
+  for(let y=0;y<height;y+=20){
+    if(frame%40<20) line(BORDER_X(),y,BORDER_X(),y+10);
   }
+  noStroke();
 }
+
+function drawLeaders(){
+  push();
+  translate(leaderRed.pos.x,leaderRed.pos.y);
+  rotate(frame*0.02);
+  fill(255,0,0,180);
+  rect(-10,-10,20,20);
+  pop();
+
+  push();
+  translate(leaderBlue.pos.x,leaderBlue.pos.y);
+  rotate(-frame*0.02);
+  fill(0,0,255,180);
+  rect(-10,-10,20,20);
+  pop();
+}
+
+/* ===== 食料 ===== */
 function spawnFood(n){
   for(let i=0;i<n;i++){
     food[floor(random(food.length))]+=1;
   }
 }
 
-/* ========= 補助 ========= */
+/* ===== 補助 ===== */
 function countLand(team){
   return territory.filter(t=>t===team).length;
 }
@@ -207,3 +197,4 @@ function windowResized(){
 </script>
 </body>
 </html>
+
