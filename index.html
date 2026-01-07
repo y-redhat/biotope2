@@ -2,126 +2,181 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Ideology Biotope Simulation</title>
+<title>IDEOLOGY BIOTOPE // LEADER CORE ONLINE</title>
 <style>
-body {
-  background:#111;
-  color:#eee;
-  font-family:monospace;
-  text-align:center;
-}
-canvas {
-  border:1px solid #555;
-  background:#000;
-}
+html,body{margin:0;background:#000;color:#0f0;font-family:monospace;overflow:hidden}
+#ui{position:fixed;top:0;left:0;width:100%;padding:6px;background:rgba(0,0,0,.85);border-bottom:1px solid #0f0}
+canvas{display:block}
+.warning{color:#f00;animation:flicker .12s infinite}
+@keyframes flicker{50%{opacity:.4}}
 </style>
 </head>
 <body>
-<h2>共産主義 vs 資本主義 ビオトープ</h2>
-<canvas id="world" width="800" height="400"></canvas>
+<div id="ui">
+<span id="status">SYSTEM STABLE</span> |
+RED:<span id="rpop"></span> |
+BLUE:<span id="bpop"></span>
+</div>
+<canvas id="c"></canvas>
 
 <script>
-const canvas = document.getElementById("world");
-const ctx = canvas.getContext("2d");
+const c=document.getElementById("c"),ctx=c.getContext("2d");
+c.width=innerWidth;c.height=innerHeight;
 
-const agents = [];
-const resources = [];
+const GRID=18,cols=Math.floor(c.width/GRID),rows=Math.floor(c.height/GRID);
+let war=false,gameOver=false,frame=0;
 
-const LEFT = 0;
-const RIGHT = canvas.width / 2;
+const territory=Array(cols*rows).fill(null);
+const food=Array(cols*rows).fill(0);
 
-class Agent {
-  constructor(x, y, type) {
-    this.x = x;
-    this.y = y;
-    this.type = type; // "collective" or "market"
-    this.energy = 50;
-    this.speed = type === "market" ? 1.5 : 1;
+// ===== Leader (簡易学習ノード) =====
+class Leader{
+  constructor(team){
+    this.team=team;
+    this.w={grow:1,aggr:1,save:1};
+    this.prevScore=0;
   }
-
-  move() {
-    this.x += (Math.random() - 0.5) * this.speed * 4;
-    this.y += (Math.random() - 0.5) * this.speed * 4;
+  decide(){
+    // ε-greedy
+    if(Math.random()<0.1){
+      return ["grow","aggr","save"][Math.floor(Math.random()*3)];
+    }
+    return Object.keys(this.w).reduce((a,b)=>this.w[a]>this.w[b]?a:b);
   }
+  learn(score){
+    const diff=score-this.prevScore;
+    const act=this.decide();
+    this.w[act]+=diff*0.01;
+    this.w[act]=Math.max(0.2,Math.min(3,this.w[act]));
+    this.prevScore=score;
+  }
+}
 
-  eat() {
-    for (let i = resources.length - 1; i >= 0; i--) {
-      const r = resources[i];
-      const d = Math.hypot(this.x - r.x, this.y - r.y);
-      if (d < 6) {
-        this.energy += r.value;
-        resources.splice(i, 1);
-        break;
-      }
+const leaderRed=new Leader("red");
+const leaderBlue=new Leader("blue");
+
+class Agent{
+  constructor(team){
+    this.team=team;
+    this.x=Math.random()*c.width;
+    this.y=Math.random()*c.height;
+    this.energy=50;
+    this.speed=team==="blue"?1.8:1.2;
+  }
+  step(leader){
+    const aggr=leader.w.aggr;
+    const ang=Math.random()*Math.PI*2;
+    this.x+=Math.cos(ang)*this.speed*aggr*2;
+    this.y+=Math.sin(ang)*this.speed*aggr*2;
+    this.x=Math.max(0,Math.min(c.width,this.x));
+    this.y=Math.max(0,Math.min(c.height,this.y));
+
+    const gx=Math.floor(this.x/GRID),gy=Math.floor(this.y/GRID);
+    const idx=gx+gy*cols;
+    territory[idx]=this.team;
+
+    // 食料摂取
+    if(food[idx]>0){
+      const gain=this.team===territory[idx]?1.5:0.6;
+      this.energy+=gain;
+      food[idx]-=1;
+    }
+
+    // 思想差
+    this.energy+=this.team==="red"?0.04:Math.random()*0.08;
+    this.energy-=war?0.25/leader.w.save:0.1;
+  }
+  draw(){
+    ctx.fillStyle=this.team==="red"?"#f00":"#00f";
+    ctx.fillRect(this.x-2,this.y-2,4,4);
+  }
+}
+
+let agents=[];
+for(let i=0;i<50;i++){agents.push(new Agent("red"),new Agent("blue"));}
+
+// ===== Food & Territory =====
+function updateFood(){
+  // 領土数に応じて生成量UP
+  let rT=0,bT=0;
+  territory.forEach(t=>{if(t==="red")rT++; if(t==="blue")bT++;});
+  for(let i=0;i<food.length;i++){
+    if(territory[i]==="red") food[i]+=rT*0.00005;
+    if(territory[i]==="blue") food[i]+=bT*0.00005;
+    food[i]=Math.min(10,food[i]);
+  }
+}
+
+function drawTerritory(){
+  for(let i=0;i<territory.length;i++){
+    const t=territory[i]; if(!t) continue;
+    const x=(i%cols)*GRID,y=Math.floor(i/cols)*GRID;
+    ctx.fillStyle=t==="red"?"rgba(255,0,0,.15)":"rgba(0,0,255,.15)";
+    ctx.fillRect(x,y,GRID,GRID);
+    if(food[i]>3){
+      ctx.fillStyle="#0f0";
+      ctx.fillRect(x+GRID/2-1,y+GRID/2-1,2,2);
     }
   }
-
-  update() {
-    this.move();
-    this.eat();
-    this.energy -= 0.1;
-  }
-
-  draw() {
-    ctx.fillStyle = this.type === "collective" ? "#ff5555" : "#5599ff";
-    ctx.fillRect(this.x - 2, this.y - 2, 4, 4);
-  }
 }
 
-// 初期個体
-for (let i = 0; i < 25; i++) {
-  agents.push(new Agent(
-    Math.random() * RIGHT,
-    Math.random() * canvas.height,
-    "collective"
-  ));
-  agents.push(new Agent(
-    RIGHT + Math.random() * RIGHT,
-    Math.random() * canvas.height,
-    "market"
-  ));
+// ===== Events =====
+function purgeEvent(){
+  // 共産主義：下位エネルギー削除
+  const reds=agents.filter(a=>a.team==="red").sort((a,b)=>a.energy-b.energy);
+  const cut=Math.min(5,Math.floor(reds.length*0.1));
+  for(let i=0;i<cut;i++) agents.splice(agents.indexOf(reds[i]),1);
 }
-
-// 資源生成
-function spawnResource() {
-  resources.push({
-    x: Math.random() * canvas.width,
-    y: Math.random() * canvas.height,
-    value: 10
+function monopolyEvent(){
+  // 資本主義：上位強化
+  agents.filter(a=>a.team==="blue"&&a.energy>70).forEach(a=>{
+    a.speed+=0.2;
+    a.energy+=5;
   });
 }
 
-function drawResource(r) {
-  ctx.fillStyle = "#33ff66";
-  ctx.fillRect(r.x - 2, r.y - 2, 4, 4);
-}
+// ===== Loop =====
+function loop(){
+  if(gameOver) return;
+  frame++; ctx.clearRect(0,0,c.width,c.height);
+  drawTerritory(); updateFood();
 
-function loop() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  let r=0,b=0;
+  agents=agents.filter(a=>{
+    const L=a.team==="red"?leaderRed:leaderBlue;
+    a.step(L); a.draw();
+    if(a.team==="red") r++; else b++;
+    return a.energy>0;
+  });
 
-  // 境界線
-  ctx.strokeStyle = "#666";
-  ctx.beginPath();
-  ctx.moveTo(RIGHT, 0);
-  ctx.lineTo(RIGHT, canvas.height);
-  ctx.stroke();
+  // 学習スコア（人口+領土）
+  leaderRed.learn(r);
+  leaderBlue.learn(b);
 
-  if (Math.random() < 0.05) spawnResource();
+  // 増殖（学習反映）
+  if(Math.random()<0.02*leaderRed.w.grow) agents.push(new Agent("red"));
+  if(Math.random()<0.02*leaderBlue.w.grow) agents.push(new Agent("blue"));
 
-  resources.forEach(drawResource);
-
-  for (let i = agents.length - 1; i >= 0; i--) {
-    const a = agents[i];
-    a.update();
-    a.draw();
-    if (a.energy <= 0) agents.splice(i, 1);
+  if(agents.length>100&&!war){
+    war=true;
+    status.textContent="!!! WAR MODE / LEADER OVERRIDE !!!";
+    status.className="warning";
   }
 
+  if(war && frame%300===0){
+    if(r>b) purgeEvent();
+    if(b>r) monopolyEvent();
+  }
+
+  if(r<=10||b<=10){
+    gameOver=true;
+    status.textContent=r>b?"RED REGIME STABILIZED":"BLUE CORPORATE DOMINANCE";
+  }
+
+  rpop.textContent=r; bpop.textContent=b;
   requestAnimationFrame(loop);
 }
-
 loop();
 </script>
 </body>
 </html>
-
